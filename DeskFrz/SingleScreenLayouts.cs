@@ -18,9 +18,17 @@ public static class SingleScreenLayouts
             ConfigKey = Fingerprint.Configuration(displays, cell, snapshot.IconSize, snapshot.FolderFlags) };
     }
 
+    internal static Snapshot WithSavedGrid(Snapshot saved, Snapshot current) {
+        uint flags = (current.FolderFlags & ~4u) | (saved.FolderFlags & 4);
+        return current with { FolderFlags = flags,
+            ConfigKey = Fingerprint.Configuration(current.Displays, current.Spacing, current.IconSize, flags) };
+    }
+
     public static RestorePlan Build(Snapshot saved, Snapshot current)
     {
         if (!saved.IsSingleScreen) throw new InvalidOperationException("请选择单屏布局。");
+        var originalKey = current.ConfigKey;
+        if (current.Displays.Count == 1) current = WithSavedGrid(saved, current);
         var source = saved.Displays.Single();
         var target = current.Displays.SingleOrDefault(d => d.Id == source.Id)
             ?? current.Displays.Single(d => d.Primary);
@@ -32,7 +40,7 @@ public static class SingleScreenLayouts
             (int)Math.Round(saved.Spacing.Y * basis / (double)source.Scale));
         var template = saved with { Displays = displays, Spacing = spacing,
             Icons = saved.Icons.Select(i => i with { MonitorId = target.Id }).ToList() };
-        return Planner.Build(template, current) with { Exact = saved.ConfigKey == current.ConfigKey };
+        return Planner.Build(template, current) with { Exact = saved.ConfigKey == originalKey, CurrentKey = originalKey };
     }
 }
 

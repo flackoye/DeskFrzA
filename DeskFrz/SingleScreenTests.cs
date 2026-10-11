@@ -39,6 +39,19 @@ internal static class SingleScreenTests
             && new Position(changedPlan.Moves.Single(m => m.IsNew).X, changedPlan.Moves.Single(m => m.IsNew).Y) != new Position(30, 10), "deleted icons are skipped and conflicting new icon gets a free position");
         var empty = Scene([Screen("empty", 0)], []);
         assert(SingleScreenLayouts.Create(empty).IsSingleScreen && SingleScreenLayouts.Build(empty, empty).BlockedReason is null, "empty desktop can initialize and recover");
+        var alignedSaved = Scene([Screen("laptop", 0)], [new("a", "a", "laptop", 26, 2), new("b", "b", "laptop", 126, 2)], 4);
+        var freeCurrent = alignedSaved with { FolderFlags = 0x20, ConfigKey = "current-free" };
+        var alignedCurrent = SingleScreenLayouts.WithSavedGrid(alignedSaved, freeCurrent);
+        assert(alignedCurrent.FolderFlags == 0x24 && freeCurrent.FolderFlags == 0x20,
+            "single restore re-enables saved alignment while preserving unrelated flags and input");
+        var alignedPlan = SingleScreenLayouts.Build(alignedSaved, freeCurrent);
+        assert(alignedPlan.CurrentKey == "current-free" && alignedPlan.BlockedReason is null
+            && alignedPlan.Moves.Select(m => new Position(m.X, m.Y)).SequenceEqual([new Position(26, 2), new Position(126, 2)]),
+            "single preview retains original fingerprint and saved aligned coordinates");
+        assert((SingleScreenLayouts.WithSavedGrid(single, alignedCurrent).FolderFlags & 4) == 0,
+            "single records intentionally saved in free placement keep their own setting");
+        assert(SingleScreenLayouts.Build(alignedSaved, freeCurrent with { FolderFlags = 0x21 }).BlockedReason is not null,
+            "restoring single alignment never bypasses auto-arrange guard");
         var gate = new SingleScreenRecovery(); var now = DateTimeOffset.UtcNow;
         assert(!gate.Ready(unplugged, null, now) && !gate.Pending, "no automatic restore before mandatory default setup");
         assert(!gate.Ready(unplugged, single.Id, now) && gate.Pending

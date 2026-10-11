@@ -9,7 +9,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>mark.ico</ApplicationIcon>
-    <Version>0.1.14</Version>
+    <Version>0.1.15</Version>
     <AssemblyName>DeskFrzA</AssemblyName>
     <Product>DeskFrzA</Product>
     <Title>DeskFrzA</Title>

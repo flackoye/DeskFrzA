@@ -124,11 +124,12 @@ public sealed class DesktopService(Store store)
             library.UndoActiveBaseline = library.ActiveBaseline;
         }
         store.Write(library); // Durable backup MUST precede the first native mutation.
+        bool restoreGrid = undo || (targetId is null && saved.IsSingleScreen && before.Displays.Count == 1);
         if (plan.Transfer?.FreePlacement == true) desktop.SetGridAlignment(false);
-        else if (undo && (saved.FolderFlags & 4) != (before.FolderFlags & 4)) desktop.SetGridAlignment((saved.FolderFlags & 4) != 0);
+        else if (restoreGrid && (saved.FolderFlags & 4) != (before.FolderFlags & 4)) desktop.SetGridAlignment((saved.FolderFlags & 4) != 0);
         var placementBase = desktop.Capture();
         uint expectedFlags = plan.Transfer?.FreePlacement == true ? before.FolderFlags & ~4u
-            : undo ? (before.FolderFlags & ~4u) | (saved.FolderFlags & 4) : before.FolderFlags;
+            : restoreGrid ? (before.FolderFlags & ~4u) | (saved.FolderFlags & 4) : before.FolderFlags;
         if (placementBase.ConfigKey != Fingerprint.Configuration(before.Displays, before.Spacing, before.IconSize, expectedFlags))
             throw new InvalidOperationException("屏幕在迁移前发生变化，已暂停并保留撤销备份。");
         desktop.Apply(plan.Moves, placementBase.ViewOrigin);
@@ -191,10 +192,7 @@ public sealed class DesktopService(Store store)
     }
     static RestorePlan Build(Snapshot saved, Snapshot current) => saved.IsSingleScreen
         ? SingleScreenLayouts.Build(saved, current) : Planner.Build(saved, current);
-    static Snapshot WithSavedGrid(Snapshot saved, Snapshot current) {
-        uint flags = (current.FolderFlags & ~4u) | (saved.FolderFlags & 4);
-        return current with { FolderFlags = flags, ConfigKey = Fingerprint.Configuration(current.Displays, current.Spacing, current.IconSize, flags) };
-    }
+    static Snapshot WithSavedGrid(Snapshot saved, Snapshot current) => SingleScreenLayouts.WithSavedGrid(saved, current);
     Snapshot Find(string id)
     {
         if (switches.Source?.Id == id) return switches.Source;

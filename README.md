@@ -8,7 +8,7 @@
 
 💻 断开外接显示器、回到单屏时，DeskFrzA 会自动恢复默认单屏布局，让桌面继续保持井然有序。
 
-当前版本：**0.1.14 预览版**。
+当前版本：**0.1.15 预览版**。
 
 ![DeskFrzA dashboard](docs/images/dashboard.png)
 
