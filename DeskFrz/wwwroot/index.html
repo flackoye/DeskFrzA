@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeskFrzA</title>
+  <link rel="icon" href="/mark.png" type="image/png">
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a href="#records" class="brand" aria-label="DeskFrzA 首页"><img src="/mark.png" alt=""><span class="brand-typewriter" aria-hidden="true"><span id="brand-letters">DeskFrzA...</span><span class="typing-caret"></span></span></a>
+    <a id="desktop-status" class="status-chain" href="#records" aria-label="查看布局记录"><span id="status-mode">桌面</span><span class="status-line" aria-hidden="true"></span><span id="status-name" class="status-name">正在读取</span><span class="status-line name-line" aria-hidden="true"></span><span class="status-result" role="status"><span class="status-dot" aria-hidden="true"></span><span id="status-text">连接中</span></span></a>
+    <div class="top-tools"><a class="icon-button header-github" href="https://github.com/flackoye" target="_blank" rel="noopener noreferrer" aria-label="GitHub" title="GitHub"><svg class="github-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.54v-2.07c-3.1.67-3.75-1.32-3.75-1.32-.51-1.29-1.24-1.63-1.24-1.63-1.01-.7.08-.69.08-.69 1.12.08 1.7 1.15 1.7 1.15.99 1.7 2.6 1.21 3.23.93.1-.72.39-1.21.7-1.49-2.48-.28-5.08-1.24-5.08-5.52 0-1.22.43-2.22 1.15-3-.12-.28-.5-1.42.11-2.95 0 0 .94-.3 3.05 1.14a10.66 10.66 0 0 1 5.56 0c2.12-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.67.12 2.95.72.78 1.15 1.78 1.15 3 0 4.29-2.61 5.24-5.09 5.51.4.35.76 1.02.76 2.06v3.07c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z"/></svg></a><button id="update-button" class="text-button" hidden>有更新</button><button id="settings-button" class="icon-button" aria-label="设置" title="设置"><span data-icon="sliders"></span></button></div>
+  </header>
+  <main>
+    <div class="intro"><div><div class="eyebrow"><span class="line"></span> DESKTOP FREEZE</div><h1>定格此刻，<span>随时归位。</span></h1></div><div class="intro-right"><span class="live-pill" id="live-pill"><span class="dot"></span><span id="live-text">正在连接桌面</span></span><span class="intro-symbol" aria-hidden="true">✳</span></div></div>
+    <div id="error-banner" class="notice error" role="alert" hidden><span id="error-text"></span><button id="retry-button" class="text-button">重新读取 <span data-icon="refresh"></span></button></div>
+    <section id="actions" class="panel action-panel">
+      <div class="panel-heading"><div class="section-title"><span class="section-number">01</span><h2>布局操作</h2></div><span id="match-badge" class="subtle-badge">等待读取</span></div>
+      <div class="action-content"><div class="action-copy"><div class="eyebrow">A PLACE FOR EVERYTHING</div><h3>留住你的<span>桌面秩序。</span></h3></div><div class="action-buttons"><button id="save-button" class="action-button save" disabled><span class="action-glyph" data-icon="freeze"></span><span><strong>保存布局</strong><span class="button-caption">冻结当前排列</span></span><span data-icon="arrow"></span></button><button id="restore-button" class="action-button restore" disabled><span class="action-glyph" data-icon="restore"></span><span><strong>恢复布局</strong><span class="button-caption" id="restore-caption">回到保存的位置</span></span><span data-icon="arrow"></span></button></div></div>
+      <div class="action-bottom"><span id="action-status" role="status">读取完成后即可保存</span><button id="undo-button" class="text-button" disabled><span data-icon="undo"></span>撤销上次恢复</button></div>
+    </section>
+    <section id="records" class="panel record-panel">
+      <div class="panel-heading"><div class="section-title"><span class="section-number">02</span><h2>记录</h2></div><span id="record-count" class="counter">0 套布局</span></div>
+    <div id="screens" class="record-live">
+      <div class="record-live-heading"><div class="section-title"><h2>当前屏幕</h2><span id="screen-count" class="counter">—</span></div><button id="refresh-button" class="text-button"><span data-icon="refresh"></span>刷新</button></div>
+      <div class="screen-content"><div id="screen-map" class="screen-map" aria-label="当前显示器排列"><div class="loading-state">正在读取屏幕排列…</div></div><div class="screen-summary"><span id="layout-label">—</span><div class="legend"><span class="legend-dot"></span>主屏 <span class="legend-dot secondary"></span>副屏</div><span id="icon-count">— 个图标</span></div></div>
+      <details class="technical-details"><summary>屏幕详情 <span data-icon="chevron"></span></summary><div id="screen-details"></div></details>
+    </div>
+      <div class="active-layout-bar"><strong id="active-layout">尚未选用布局</strong><button id="save-changes" class="text-button" hidden>保存为新记录 <span data-icon="arrow"></span></button></div>
+      <div id="single-recovery" class="single-recovery" role="status" hidden><span id="single-recovery-text"></span><button id="single-retry" class="text-button" hidden>重新恢复</button></div>
+      <div id="record-list" class="record-content"></div>
+    </section>
+    <footer><span>DeskFrzA<span class="brand-dot">.</span></span><button id="about-button" class="text-button">关于 <span data-icon="arrow"></span></button></footer>
+  </main>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="modal"><div class="modal-top"><span class="eyebrow" id="modal-kicker">DESKFRZA</span><button id="modal-close" class="icon-button" aria-label="关闭弹窗"><span data-icon="close"></span></button></div><h2 id="modal-title"></h2><div id="modal-body"></div><div id="modal-actions" class="modal-actions"></div></dialog>
+</body>
+</html>

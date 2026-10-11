@@ -1,0 +1,29 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+releases/
+artifacts/
+work/
+*.user
+*.suo
+library*.json
+session.json
+webview/
+
+# Local tool caches and build / install outputs
+**/packages/
+**/.nuget/
+**/.dotnet/
+*.tmp
+*.log
+*.msi
+*.msix
+*.exe
+*.zip
+# Private local state and credentials
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12

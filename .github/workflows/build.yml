@@ -1,0 +1,64 @@
+name: Windows build and release
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Validate tag matches project version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          [xml]$project = Get-Content DeskFrz/DeskFrz.csproj
+          if ($env:RELEASE_TAG -ne ('v' + $project.Project.PropertyGroup.Version)) { throw '版本标签必须与 csproj Version 一致。' }
+      - run: dotnet run --project DeskFrz/DeskFrz.csproj -c Release -- --selftest --data ./artifacts/tests
+      - name: Ensure Inno Setup compiler
+        shell: pwsh
+        run: |
+          $compiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+          if (-not (Test-Path -LiteralPath $compiler)) {
+            choco install innosetup --version=6.7.3 --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+          }
+      - name: Package installer and portable build
+        shell: pwsh
+        run: ./scripts/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeskFrzA-downloads
+          path: |
+            releases/DeskFrzA-Setup.exe
+            releases/DeskFrzA-Portable-win-x64.zip
+            releases/SHA256SUMS.txt
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: DeskFrzA-downloads
+          path: downloads
+      - name: Create draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$env:RELEASE_TAG" ./downloads/DeskFrzA-Setup.exe ./downloads/DeskFrzA-Portable-win-x64.zip ./downloads/SHA256SUMS.txt --repo "$env:GITHUB_REPOSITORY" --verify-tag --draft --title "DeskFrzA $env:RELEASE_TAG" --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Release creation failed.' }

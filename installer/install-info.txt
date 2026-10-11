@@ -1,0 +1,9 @@
+DeskFrzA — Windows 多屏桌面图标布局工具
+
+支持保存、恢复和管理布局，数据保存在本机。
+安装向导支持选择目录，以及可选的桌面快捷方式。
+卸载程序时保留已保存的布局与设置。
+
+安装包包含 .NET 运行时。应用还需要 Microsoft Edge WebView2 Runtime。
+如果系统尚未安装，请从微软官方下载：
+https://developer.microsoft.com/microsoft-edge/webview2/
