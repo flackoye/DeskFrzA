@@ -1,4 +1,4 @@
-param([string]$Iscc)
+﻿param([string]$Iscc)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 [xml]$project = Get-Content -LiteralPath (Join-Path $projectRoot 'DeskFrz/DeskFrz.csproj')
@@ -6,7 +6,12 @@ $version = [string]$project.Project.PropertyGroup.Version
 if (-not $Iscc) {
     $compiler = Get-Command ISCC.exe -ErrorAction SilentlyContinue
     if ($compiler) { $Iscc = $compiler.Source }
-    else { $Iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe' }
+    else {
+        $installedCompiler = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6/ISCC.exe'
+        $localCompiler = Join-Path $projectRoot 'artifacts/tools/inno/ISCC.exe'
+        if (Test-Path -LiteralPath $installedCompiler -PathType Leaf) { $Iscc = $installedCompiler }
+        else { $Iscc = $localCompiler }
+    }
 }
 if (-not (Test-Path -LiteralPath $Iscc -PathType Leaf)) { throw '请安装 Inno Setup 6.5+，或通过 -Iscc 指定 ISCC.exe。' }
 $stage = Join-Path $projectRoot ('artifacts/package-' + [guid]::NewGuid().ToString('N'))
