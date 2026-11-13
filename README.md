@@ -40,7 +40,7 @@
 | **安装版 (Setup)** | 支持自定义路径、桌面快捷方式及应用内一键更新 | [DeskFrzA-Setup.exe](https://github.com/flackoye/DeskFrzA/releases/latest/download/DeskFrzA-Setup.exe) |
 | **便携版 (Portable)** | 解压即用，直接运行 `DeskFrzA.exe` | [DeskFrzA-Portable-win-x64.zip](https://github.com/flackoye/DeskFrzA/releases/latest/download/DeskFrzA-Portable-win-x64.zip) |
 
-> 注：当前为 **0.1.15 预览版**。若上方直链暂未生效，请前往 [Releases 页面](https://github.com/flackoye/DeskFrzA/releases) 下载最新预发布包。
+> 查看版本说明和历史下载，请前往 [Releases 页面](https://github.com/flackoye/DeskFrzA/releases)。
 
 ## 快速上手
 

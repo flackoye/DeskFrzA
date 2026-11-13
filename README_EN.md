@@ -40,7 +40,7 @@ Inspired by classic utilities like DesktopOK, **DeskFrzA** focuses on doing just
 | **Installer (Setup)** | Custom install path, shortcuts, and built-in one-click updates | [DeskFrzA-Setup.exe](https://github.com/flackoye/DeskFrzA/releases/latest/download/DeskFrzA-Setup.exe) |
 | **Portable (Zip)** | Extract and run `DeskFrzA.exe` directly, no installation required | [DeskFrzA-Portable-win-x64.zip](https://github.com/flackoye/DeskFrzA/releases/latest/download/DeskFrzA-Portable-win-x64.zip) |
 
-> Note: Current version is **0.1.15 Preview**. For pre-release builds, please visit the [Releases page](https://github.com/flackoye/DeskFrzA/releases).
+> For release notes and previous downloads, visit the [Releases page](https://github.com/flackoye/DeskFrzA/releases).
 
 ## Quick Start
 
