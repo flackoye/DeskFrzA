@@ -5,18 +5,17 @@
 ## 1. 启动与现场备份
 
 1. 退出旧版 DeskFrzA，避免两个版本同时执行保护。此前默认驻留的旧测试实例需要从托盘右键“退出”；本次新版仅在开启后台时 X 隐藏，关闭后台时 X 真正退出。
-2. 双击项目根目录的 `验收新版.cmd`。它使用本次通知修订构建的 `artifacts/acceptance-build-notifications/DeskFrzA.exe` 和独立记录目录 `artifacts/acceptance-20261113`，不替换已安装版本，不修改正式记录库。
+2. 在仓库根目录执行下方的构建和启动命令。验收实例使用独立记录目录 `artifacts/acceptance-20261113`，不替换已安装版本，不修改正式记录库。
 3. **独立记录库仍操作真实桌面。** 可直接保存当前现场并命名“验收前备份”，不需要先设置默认单屏模板。连接双屏后，再保存“双屏验收前”。截图保留位置和显示设置。若测试库已有默认单屏项，以后台开启状态重启可能按该项自动恢复；先确认默认项是希望保护的布局。
 4. 前几项保持主屏、分辨率、缩放、图标大小及“对齐到网格”不变，桌面的“自动排列”保持关闭。到专门的网格/屏幕测试再调整这些设置。
 5. 设置中关闭测试实例的自动更新，测试过程中不安装更新。
 
-启动脚本只适用于当前本机工作区。本机构建命令：
+在已安装 .NET 8 SDK 的 PowerShell 中执行以下命令：
 
 ```powershell
-Set-Location 'E:\DeskTop\BHF_Studio\DeskFrzA'
-$env:DOTNET_ROOT = Join-Path $PWD 'artifacts\tools\dotnet'
-$env:DOTNET_CLI_HOME = Join-Path $PWD 'artifacts\tools\dotnet-home'
-& .\artifacts\tools\dotnet\dotnet.exe build DeskFrz\DeskFrz.csproj -c Release --no-restore -o artifacts\acceptance-build-notifications --nologo -v quiet
+dotnet build DeskFrz/DeskFrz.csproj -c Release -o artifacts/acceptance-build-notifications
+if ($LASTEXITCODE -ne 0) { throw '验收构建失败' }
+& .\artifacts\acceptance-build-notifications\DeskFrzA.exe --data (Join-Path $PWD 'artifacts\acceptance-20261113')
 ```
 
 ## 2. 使用模式与通知（优先验收）
@@ -41,7 +40,7 @@ $env:DOTNET_CLI_HOME = Join-Path $PWD 'artifacts\tools\dotnet-home'
 | --- | --- | --- |
 | T1 | 点击窗口右上角 X，展开任务栏右下角的小箭头 | 主窗口隐藏、任务栏窗口消失；通知区域能找到 DeskFrzA 图标。图标是否位于折叠区由 Windows 的托盘设置决定 |
 | T2 | 双击托盘图标，再次关闭；右键托盘选择“打开 DeskFrzA” | 两种方式均唤回原窗口，记录和界面可用，没有新增实例 |
-| T3 | 隐藏到托盘后，再双击同一个 `验收新版.cmd`；窗口最小化时再试一次 | 唤回现有窗口，最小化窗口恢复显示，不创建第二个同记录库实例 |
+| T3 | 隐藏到托盘后，再执行同一条启动命令；窗口最小化时再试一次 | 唤回现有窗口，最小化窗口恢复显示，不创建第二个同记录库实例 |
 | T4 | 托盘右键选择“退出”，随后再次运行启动脚本 | 旧进程和本地服务结束、托盘图标移除；重新启动正常，记录保留 |
 | T5 | 自行选择默认单屏项后，隐藏到托盘并执行下表 R6 的接屏/拔屏流程 | 后台恢复继续生效；主屏切换只发系统提醒，不主动唤回窗口，点击提醒后才处理 |
 | T6 | 先退出旧测试实例；用新版打开任务管理器，记录主程序及所属 WebView2 子进程内存。隐藏到托盘，等待 10 秒，再打开；重复 10 次并驻留 10 分钟 | 持续隐藏/最小化两秒后开始释放界面，所属 WebView2 子进程应退出，后台内存明显回落；重开后页面、记录和撤销可用；稳定隐藏时不应每轮持续大幅增长。记录实际数值，不把其他应用的 WebView2 一并统计 |

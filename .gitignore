@@ -5,6 +5,7 @@
 releases/
 artifacts/
 work/
+/验收新版.cmd
 *.user
 *.suo
 library*.json
