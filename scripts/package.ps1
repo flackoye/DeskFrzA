@@ -37,8 +37,13 @@ $toastVersion = $project.SelectSingleNode('//PackageReference[@Include="Microsof
 $toastLicense = Join-Path $cache "microsoft.toolkit.uwp.notifications/$toastVersion/License.md"
 if (-not (Test-Path -LiteralPath $toastLicense)) { throw "缺少 Windows 通知依赖许可：$toastLicense" }
 Copy-Item -LiteralPath $toastLicense -Destination (Join-Path $licenses 'WindowsCommunityToolkit-LICENSE.md')
-$runtimeVersion = $project.SelectSingleNode('//RuntimeFrameworkVersion').InnerText
+$targetFramework = [string]$project.Project.PropertyGroup.TargetFramework
+$restoredFramework = $assets.project.frameworks.PSObject.Properties.Value | Where-Object targetAlias -EQ $targetFramework
+$runtimeDownloads = $restoredFramework.downloadDependencies
 foreach ($package in @('microsoft.netcore.app.runtime.win-x64', 'microsoft.aspnetcore.app.runtime.win-x64', 'microsoft.windowsdesktop.app.runtime.win-x64')) {
+    $runtimeDownload = $runtimeDownloads | Where-Object name -EQ $package
+    if ($runtimeDownload.version -notmatch '^\[([^,]+), \1\]$') { throw "无法从 NuGet 还原结果确定 .NET 运行时版本：$package" }
+    $runtimeVersion = $Matches[1]
     $notices = @(Get-ChildItem -LiteralPath (Join-Path $cache "$package/$runtimeVersion") -File |
         Where-Object Name -Match '^(LICENSE(\.TXT)?|THIRD-PARTY-NOTICES\.TXT)$')
     if ($notices.Count -eq 0) { throw "缺少 .NET 运行时许可：$package" }
