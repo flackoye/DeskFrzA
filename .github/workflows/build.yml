@@ -24,6 +24,10 @@ jobs:
           [xml]$project = Get-Content DeskFrz/DeskFrz.csproj
           if ($env:RELEASE_TAG -ne ('v' + $project.Project.PropertyGroup.Version)) { throw '版本标签必须与 csproj Version 一致。' }
       - run: dotnet run --project DeskFrz/DeskFrz.csproj -c Release -- --selftest --data ./artifacts/tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/test-frontend.cjs
       - name: Ensure Inno Setup compiler
         shell: pwsh
         run: |

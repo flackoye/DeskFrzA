@@ -30,7 +30,7 @@ public static class SelfTest
         var scaled = Make([Screen("left", -1000, 1000, 150), monitors[1]], spaced.Icons);
         var gridPlan = Planner.Build(spaced, scaled);
         Assert(gridPlan.BlockedReason is null && gridPlan.Moves.Single().X == -661
-            && gridPlan.Moves.Single().Y == 303, "preserve grid row and column through scale changes");
+            && gridPlan.Moves.Single().Y == 302, "preserve physical spacing and the Shell two-pixel top inset through scale changes");
         var added = Make(monitors, [..moved.Icons, new DesktopIcon("new", "new", "left", -492, 8)]);
         plan = Planner.Build(saved, added);
         Assert(plan.NewCount == 1 && plan.Moves.Single(m => m.Id == "new").MonitorId == "left"
@@ -84,21 +84,23 @@ public static class SelfTest
                 "delete middle record renumbers all entries while preserving active selection");
         }
         finally { System.IO.Directory.Delete(store.DirectoryPath, true); }
-        // Regression: Explorer spacing 174x216 while the 100% primary uses 116x144.
+        // Geometry regression: raw spacing 174x216 while the 100% primary uses
+        // 116x144. The 144 view DPI below is an explicit normalization-model input;
+        // it was not recorded in the historical capture.
         var mixedScreens = new List<Display> {
             new("laptop", "laptop", "DISPLAY1", false, new(-2560, 0, 2560, 1600), new(-2560, 0, 2560, 1552), 150, 1, 1),
             new("msi", "msi", "DISPLAY2", true, new(0, 0, 2560, 1440), new(0, 0, 2560, 1392), 100, 1, 1) };
         var mixedIcons = Enumerable.Range(0, 13).Select(n => new DesktopIcon("l" + n, "l" + n, "laptop", -2509 + n % 7 * 174, 2 + n / 7 * 216))
             .Concat(Enumerable.Range(0, 48).Select(n => new DesktopIcon("m" + n, "m" + n, "msi", 34 + n % 12 * 116, 2 + n / 12 * 144))).ToList();
         Snapshot Mixed(List<DesktopIcon> items) => new(Guid.NewGuid().ToString("N"), DateTimeOffset.Now,
-            Fingerprint.Configuration(mixedScreens, new(174, 216), 48, 4), mixedScreens, items, new(174, 216), new(-2560, 0), 48, 4);
+            Fingerprint.Configuration(mixedScreens, new(174, 216), 48, 4, 144), mixedScreens, items, new(174, 216), new(-2560, 0), 48, 4) { SpacingDpi = 144 };
         var originalMixed = Mixed(mixedIcons);
         var gathered = Mixed(mixedIcons.Select((i, n) => i with { MonitorId = "msi", X = 34 + n % 12 * 116, Y = 2 + n / 12 * 144 }).ToList());
         var mixedRestore = Planner.Build(originalMixed, gathered);
         Assert(mixedRestore.BlockedReason is null && mixedRestore.Moves.Count == 61
             && mixedRestore.Moves.All(m => originalMixed.Icons.Any(i => i.Id == m.Id && i.X == m.X && i.Y == m.Y)), "mixed DPI exact restore keeps all 61 physical coordinates");
-        Assert(LayoutGrid.Cell(gathered, mixedScreens[1], 100) == new Position(116, 144), "calibrate spacing from populated primary lattice");
-        Assert(LayoutGrid.Cell(gathered, mixedScreens[0], 100) == new Position(174, 216), "calibrate empty secondary spacing without double scaling");
+        Assert(LayoutGrid.Cell(gathered, mixedScreens[1], 100) == new Position(116, 144), "captured view DPI normalizes primary spacing");
+        Assert(LayoutGrid.Cell(gathered, mixedScreens[0], 100) == new Position(174, 216), "captured view DPI normalizes empty secondary spacing");
         var edge = originalMixed with { Icons = [new("edge", "edge", "msi", 2550, 1380)] };
         Assert(Planner.Build(edge, edge).BlockedReason is null, "exact restore does not reject captured edge position using estimated cell");
         var trackerAgain = new ScreenSwitchTracker(); trackerAgain.Observe(gathered);
@@ -174,7 +176,7 @@ public static class SelfTest
             mixedScreens[1] with { Primary = false, Bounds = new(2560, 0, 2560, 1440), WorkArea = new(2560, 0, 2560, 1440) } };
         var realCurrent = realSource with { Id = "current-switch", Displays = realTargetScreens, Spacing = new(169, 216),
             Icons = realSource.Icons.Select(i => i with { X = i.X + 2560 }).ToList(),
-            ConfigKey = Fingerprint.Configuration(realTargetScreens, new(169, 216), 48, 4) };
+            ConfigKey = Fingerprint.Configuration(realTargetScreens, new(169, 216), 48, 4, 144) };
         var actualTransfer = TransferPlanner.Build(realSource, realCurrent, "laptop");
         Assert(actualTransfer.BlockedReason is null && actualTransfer.Moves.Count == 61 && actualTransfer.Transfer?.FreePlacement == true,
             "real 61-icon 100-to-150 DPI switch offers confirmed free placement");
@@ -272,6 +274,8 @@ public static class SelfTest
             && msiBackToDual.Moves.All(m => originalMixed.Icons.Any(i => i.Id == m.Id && i.X == m.X && i.Y == m.Y)),
             "MSI primary migration followed by dual restore preserves every saved physical coordinate");
         SingleScreenTests.Run(directory, Assert);
+        RestoreTests.Run(directory, Assert);
+        BackgroundTests.Run(Assert);
         FeatureTests.Transfer(Assert);
         FeatureTests.Updates(directory, Assert).GetAwaiter().GetResult();
         return new { passed = count };

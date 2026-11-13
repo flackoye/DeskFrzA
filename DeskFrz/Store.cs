@@ -16,6 +16,9 @@ public sealed class Store(string directory)
             throw new InvalidDataException("布局记录格式不受支持。");
         if (library.Current.Select(s => s.ConfigKey).Distinct().Count() != library.Current.Count)
             throw new InvalidDataException("布局记录包含重复配置。");
+        if (library.Records.Concat(new[] { library.ActiveBaseline, library.Undo, library.UndoActiveBaseline }.OfType<Snapshot>())
+            .Any(s => s.SpacingDpi is <= 0 or > 960))
+            throw new InvalidDataException("布局记录包含无效的桌面视图 DPI。");
         Renumber(library);
         return library;
     }
@@ -45,17 +48,17 @@ public sealed class Store(string directory)
         }
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
-    public void Save(Snapshot snapshot, bool select = true)
+    public void Save(Snapshot snapshot, bool select = true, Snapshot? baseline = null)
     {
         var library = Read();
-        var old = library.Current.SingleOrDefault(s => s.ConfigKey == snapshot.ConfigKey);
+        var old = library.Current.Where(s => Fingerprint.SameConfiguration(s, snapshot)).ToList();
         snapshot = snapshot with { Number = library.NextRecordNumber++ };
-        if (old is not null) { library.History.Add(old); library.Current.Remove(old); }
+        foreach (var previous in old) { library.History.Add(previous); library.Current.Remove(previous); }
         library.Current.Add(snapshot);
         if (select) {
             library.ActiveId = snapshot.Id;
             library.SelectionInitialized = true;
-            library.ActiveBaseline = snapshot;
+            library.ActiveBaseline = baseline ?? snapshot;
         }
         Write(library);
     }

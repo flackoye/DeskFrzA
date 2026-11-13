@@ -40,16 +40,59 @@ internal static class SingleInstance
         throw new InvalidOperationException("已有 DeskFrzA 进程，但窗口未响应。请在任务管理器结束 DeskFrzA 后重新打开。", failure);
     }
 
-    public static async Task TestLifecycle(Window window, string data, string output)
+    public static async Task TestLifecycle(Window window, TrayIcon tray, string data, string output)
     {
-        window.WindowState = WindowState.Minimized;
+        window.Close();
+        await Task.Delay(3500); // The two-second dashboard release must have completed.
+        bool hidden = !window.IsVisible && tray.IsVisible;
+        using var session = JsonDocument.Parse(File.ReadAllText(Path.Combine(data, "session.json")));
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        using var state = await client.GetAsync(session.RootElement.GetProperty("url").GetString() + "/api/state");
+        bool backgroundResponsive = state.IsSuccessStatusCode;
+        using var healthResponse = await client.GetAsync(session.RootElement.GetProperty("url").GetString() + "/api/health");
+        healthResponse.EnsureSuccessStatusCode();
+        using var health = JsonDocument.Parse(await healthResponse.Content.ReadAsStringAsync());
+        bool dashboardReleased = !health.RootElement.GetProperty("nativeReady").GetBoolean();
+        tray.ShowWindow();
+        bool trayRestored = window.IsVisible;
+        window.Close();
         var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false, CreateNoWindow = true };
+        if (string.Equals(Path.GetFileNameWithoutExtension(Environment.ProcessPath), "dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(typeof(Program).Assembly.Location);
         start.ArgumentList.Add("--data"); start.ArgumentList.Add(data);
         using var duplicate = Process.Start(start)!;
         await duplicate.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
         bool restored = window.IsVisible && window.WindowState == WindowState.Normal;
-        File.WriteAllText(output, JsonSerializer.Serialize(new { duplicateExitCode = duplicate.ExitCode, restored, active = window.IsActive }));
-        if (duplicate.ExitCode != 0 || !restored) throw new InvalidOperationException("窗口唤回验证失败。");
+        window.WindowState = WindowState.Minimized;
+        tray.ShowWindow();
+        bool minimizedRestored = window.WindowState == WindowState.Normal;
+        File.WriteAllText(output, JsonSerializer.Serialize(new { hidden, backgroundResponsive, dashboardReleased, trayRestored,
+            duplicateExitCode = duplicate.ExitCode, restored, minimizedRestored, active = window.IsActive }));
+        if (!hidden || !backgroundResponsive || !dashboardReleased || !trayRestored || duplicate.ExitCode != 0 || !restored || !minimizedRestored)
+            throw new InvalidOperationException("托盘窗口生命周期验证失败。");
+        tray.Exit();
+    }
+
+    public static async Task TestModes(Window window, TrayIcon tray, DesktopService service, Store store, string data, string output)
+    {
+        bool defaultOff = !tray.BackgroundEnabled && !tray.IsVisible
+            && Application.Current.ShutdownMode == ShutdownMode.OnMainWindowClose && !store.Read().Settings.BackgroundEnabled;
+        var settings = store.Read().Settings;
+        service.Settings(settings.PanelGap, backgroundEnabled: true);
+        bool enabledSaved = new Store(data).Read().Settings.BackgroundEnabled && tray.IsVisible;
         window.Close();
+        await Task.Delay(3500);
+        bool residentHidden = !window.IsVisible;
+        using var session = JsonDocument.Parse(File.ReadAllText(Path.Combine(data, "session.json")));
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        using var response = await client.GetAsync(session.RootElement.GetProperty("url").GetString() + "/api/state");
+        bool backendAlive = response.IsSuccessStatusCode;
+        service.Settings(settings.PanelGap, backgroundEnabled: false);
+        bool disabledSaved = !new Store(data).Read().Settings.BackgroundEnabled && !tray.IsVisible && window.IsVisible
+            && Application.Current.ShutdownMode == ShutdownMode.OnMainWindowClose;
+        File.WriteAllText(output, JsonSerializer.Serialize(new { defaultOff, enabledSaved, residentHidden, backendAlive, disabledSaved }));
+        if (!defaultOff || !enabledSaved || !residentHidden || !backendAlive || !disabledSaved)
+            throw new InvalidOperationException("后台模式切换验证失败。");
+        window.Close(); // Off means closing the main window must end the process.
     }
 }

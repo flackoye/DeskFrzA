@@ -5,11 +5,16 @@ namespace DeskFrz;
 /// <summary>Pure preflight. Never changes the desktop; refuses partial/missing-monitor restores.</summary>
 public static class Planner
 {
-    public static RestorePlan Build(Snapshot saved, Snapshot current)
+    public static RestorePlan Build(Snapshot saved, Snapshot current) => BuildCore(saved, current, null);
+
+    internal static RestorePlan Build(Snapshot saved, Snapshot current, string targetId) => BuildScoped(saved, current, new HashSet<string> {targetId});
+    internal static RestorePlan BuildScoped(Snapshot saved, Snapshot current, IReadOnlySet<string> targets) => BuildCore(saved, current, targets);
+    static RestorePlan BuildCore(Snapshot saved, Snapshot current, IReadOnlySet<string>? targets)
     {
-        var exact = saved.ConfigKey == current.ConfigKey;
+        var exact = Fingerprint.SameConfiguration(saved, current);
         RestorePlan Block(string reason) => new(saved.Id, current.ConfigKey, exact, [], 0, 0, reason);
-        if (saved.MonitorSet != current.MonitorSet)
+        if ((targets is null && saved.MonitorSet != current.MonitorSet)
+            || (targets is not null && targets.Any(id=>!current.Displays.Any(d=>d.Id==id) || !saved.Displays.Any(d=>d.Id==id))))
             return Block("显示器组合不同。请连接原来的显示器后恢复。");
         if (current.Displays.Any(m => m.TargetCount != 1))
             return Block("当前是复制显示模式。请切换为扩展模式后恢复。");
@@ -20,7 +25,7 @@ public static class Planner
         var newcomers = current.Icons.Where(i => !oldIds.Contains(i.Id)).ToList();
         List<Move> moves = [];
         var primaryScale = current.Displays.Single(m => m.Primary).Scale;
-        foreach (var screen in current.Displays)
+        foreach (var screen in current.Displays.Where(s => targets is null || targets.Contains(s.Id)))
         {
             var before = saved.Displays.Single(m => m.Id == screen.Id);
             var cell = Cell(current, screen, primaryScale);
@@ -40,9 +45,24 @@ public static class Planner
             var savedPrimaryScale = saved.Displays.Single(m => m.Primary).Scale;
             var oldCell = Cell(saved, before, savedPrimaryScale);
             var oldInset = Inset(saved, before, savedPrimaryScale, oldCell);
+            geometryChanged |= (saved.FolderFlags & current.FolderFlags & 4) != 0 && oldCell != cell
+                && old.Any(i=>!IsAligned(current,screen,new(i.X-before.Bounds.X+screen.Bounds.X,i.Y-before.Bounds.Y+screen.Bounds.Y)));
             var preferred = old.Select(i => new Position(
                 screen.WorkArea.X + inset.X + Math.Max(0, (int)Math.Round((i.X - before.WorkArea.X - oldInset.X) / (double)oldCell.X)) * cell.X,
                 screen.WorkArea.Y + inset.Y + Math.Max(0, (int)Math.Round((i.Y - before.WorkArea.Y - oldInset.Y) / (double)oldCell.Y)) * cell.Y)).ToList();
+            if (saved.SpacingDpi is null || (saved.FolderFlags & 4) == 0) {
+                // A legacy snapshot has no proven source grid. Scale its physical
+                // gaps first, then use only the current grid for aligned layouts.
+                double ratio = screen.Scale / (double)before.Scale;
+                preferred = old.Select(i => {
+                    var p = new Position(screen.WorkArea.X + (int)Math.Round((i.X - before.WorkArea.X) * ratio),
+                        screen.WorkArea.Y + 2 + (int)Math.Round((i.Y - before.WorkArea.Y - 2) * ratio));
+                    if ((saved.FolderFlags & current.FolderFlags & 4) != 0)
+                        p = new(screen.WorkArea.X + inset.X + Math.Max(0, (int)Math.Round((p.X - screen.WorkArea.X - inset.X) / (double)cell.X)) * cell.X,
+                            screen.WorkArea.Y + inset.Y + Math.Max(0, (int)Math.Round((p.Y - screen.WorkArea.Y - inset.Y) / (double)cell.Y)) * cell.Y);
+                    return p;
+                }).ToList();
+            }
             var keepGrid = preferred.All(p => Fits(p, screen.WorkArea, cell, inset))
                 && preferred.Select((p, index) => preferred.Take(index).All(o => !Collides(o, p, cell))).All(valid => valid);
             int oldIndex = 0;
@@ -84,8 +104,11 @@ public static class Planner
             }
         }
         // Empty desktops and deleted icons are valid. Do not manufacture missing files.
+        bool needsFree = (current.FolderFlags & 4) != 0 && moves.Any(m =>
+            !IsAligned(current, current.Displays.Single(d => d.Id == m.MonitorId), new(m.X, m.Y))
+            && (now[m.Id].MonitorId!=m.MonitorId || now[m.Id].X!=m.X || now[m.Id].Y!=m.Y));
         return new RestorePlan(saved.Id, current.ConfigKey, exact, moves,
-            saved.Icons.Count(i => !now.ContainsKey(i.Id)), newcomers.Count, null);
+            saved.Icons.Count(i => !now.ContainsKey(i.Id)), newcomers.Count(i=>targets is null || targets.Contains(i.MonitorId)), null) { GridAlignment = needsFree ? false : null };
     }
 
 }

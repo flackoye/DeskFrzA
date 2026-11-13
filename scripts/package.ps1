@@ -27,12 +27,16 @@ $licenses = Join-Path $publish 'licenses'
 New-Item -ItemType Directory -Path $licenses -Force | Out-Null
 $assets = Get-Content -LiteralPath (Join-Path $projectRoot 'DeskFrz/obj/project.assets.json') -Raw | ConvertFrom-Json
 $cache = $assets.packageFolders.PSObject.Properties.Name | Select-Object -First 1
-$webViewVersion = [string]$project.Project.ItemGroup.PackageReference.Version
+$webViewVersion = $project.SelectSingleNode('//PackageReference[@Include="Microsoft.Web.WebView2"]/@Version').Value
 foreach ($name in @('LICENSE.txt', 'NOTICE.txt')) {
     $notice = Join-Path $cache "microsoft.web.webview2/$webViewVersion/$name"
     if (-not (Test-Path -LiteralPath $notice)) { throw "缺少 WebView2 依赖许可文件：$notice" }
     Copy-Item -LiteralPath $notice -Destination (Join-Path $licenses ('WebView2-' + $name))
 }
+$toastVersion = $project.SelectSingleNode('//PackageReference[@Include="Microsoft.Toolkit.Uwp.Notifications"]/@Version').Value
+$toastLicense = Join-Path $cache "microsoft.toolkit.uwp.notifications/$toastVersion/License.md"
+if (-not (Test-Path -LiteralPath $toastLicense)) { throw "缺少 Windows 通知依赖许可：$toastLicense" }
+Copy-Item -LiteralPath $toastLicense -Destination (Join-Path $licenses 'WindowsCommunityToolkit-LICENSE.md')
 $runtimeVersion = $project.SelectSingleNode('//RuntimeFrameworkVersion').InnerText
 foreach ($package in @('microsoft.netcore.app.runtime.win-x64', 'microsoft.aspnetcore.app.runtime.win-x64', 'microsoft.windowsdesktop.app.runtime.win-x64')) {
     $notices = @(Get-ChildItem -LiteralPath (Join-Path $cache "$package/$runtimeVersion") -File |

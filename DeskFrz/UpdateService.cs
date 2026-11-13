@@ -9,7 +9,10 @@ using System.Text.RegularExpressions;
 namespace DeskFrz;
 
 public record UpdateInfo(string CurrentVersion, string? LatestVersion, string Status, string Notes,
-    bool CanInstall, bool Ready, string ReleaseUrl);
+    bool CanInstall, bool Ready, string ReleaseUrl)
+{
+    public DateTimeOffset? LastCheckedAt { get; init; }
+}
 public record UpdateRelease(string Version, string Tag, Uri Installer, Uri Checksums, string ReleaseUrl,
     string Notes, string? Digest);
 
@@ -50,6 +53,7 @@ public sealed class UpdateService : IDisposable
         await gate.WaitAsync(cancellation);
         try
         {
+            info = info with { LastCheckedAt = DateTimeOffset.UtcNow };
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             timeout.CancelAfter(TimeSpan.FromSeconds(25));
             using var response = await http.GetAsync($"https://api.github.com/repos/{Repository}/releases/latest",

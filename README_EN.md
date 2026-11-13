@@ -50,7 +50,7 @@ Inspired by classic utilities like DesktopOK, **DeskFrzA** focuses on doing just
 
 ## Good to Know
 
-- **Requirements**: Windows 10 (1703+) / Windows 11 x64. Install the official [Microsoft WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) if prompted.
+- **Requirements**: Windows 10 (1809+) / Windows 11 x64. Install the official [Microsoft WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) if prompted.
 - **Auto-Restore**: Undock auto-restore works while the app is running, and also checks single-screen status upon launch.
 - **Non-Intrusive**: Restoring layouts never alters your Windows primary display setting, DPI scaling, or icon size.
 - **Data & Privacy**: Layouts are saved locally under `%LOCALAPPDATA%\DeskFrz` and are preserved on uninstall.

@@ -91,6 +91,9 @@ internal static class FeatureTests
         connectionTracker.Observe(splitBefore); connectionTracker.Observe(current);
         assert(connectionTracker.Source?.Icons.Select(i => i.MonitorId).Distinct().Count() == 2,
             "latest pre-switch layout detects icons distributed after connecting second screen");
+        connectionTracker.Observe(old);
+        connectionTracker.Observe(connected);
+        assert(connectionTracker.Source is null, "disconnect then reconnect with unchanged primary clears an obsolete primary-switch source");
         var after = current with { Icons = current.Icons.Select(i => { var m = plan.Moves.Single(m => m.Id == i.Id); return i with { MonitorId = m.MonitorId, X = m.X, Y = m.Y }; }).ToList() };
         assert(Verifier.Matches(current, plan, after), "native verifier accepts rigid block migration");
     }

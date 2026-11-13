@@ -4,8 +4,6 @@ using System.Windows;
 using System.Windows.Media;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 
 namespace DeskFrz;
 
@@ -14,12 +12,18 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // A stale Windows notification must never start the default data library.
+        // Notification clicks are handled only by the live resident COM activator.
+        if (args.Contains("-ToastActivated")) return;
         string? Option(string name) { int i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : null; }
         var data = Option("--data") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskFrz");
+        bool uiSelfTest = args.Contains("--ui-selftest");
         var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
         try
         {
             using var dpi = new Native.DpiScope();
+            if ((args.Contains("--memory-test") || args.Contains("--mode-test")) && (!uiSelfTest || Option("--output") is null))
+                throw new InvalidOperationException("界面模式/内存自检必须使用 --ui-selftest 和 --output，并指定全新空数据目录。");
             if (args.Contains("--selftest"))
             {
                 var result = JsonSerializer.Serialize(SelfTest.Run(data), json);
@@ -34,7 +38,11 @@ public static class Program
                 if (Option("--output") is { } output) File.WriteAllText(output, result); else Console.WriteLine(result);
                 return;
             }
-            var service = new DesktopService(new Store(data));
+            if (uiSelfTest && Option("--data") is null)
+                throw new InvalidOperationException("界面自检必须使用 --data 指定一个新的空目录。");
+            var store = new Store(data);
+            var service = uiSelfTest ? new DesktopService(store, RestoreTests.CreateUiFixture(store,
+                args.Contains("--memory-test") || args.Contains("--lifecycle-test"))) : new DesktopService(store);
             if (args.Contains("--probe"))
             {
                 var result = JsonSerializer.Serialize(service.Capture(), json);
@@ -43,8 +51,8 @@ public static class Program
             }
             using var instance = new Mutex(true, "Local\\DeskFrz-" + Fingerprint.Of(Path.GetFullPath(data)), out var first);
             if (!first) { SingleInstance.ActivateExisting(data); return; }
-            var application = new Application { ShutdownMode = args.Contains("--serve") ? ShutdownMode.OnExplicitShutdown : ShutdownMode.OnMainWindowClose };
-            using var updates = new UpdateService(data, !args.Contains("--serve"));
+            var application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+            using var updates = new UpdateService(data, !args.Contains("--serve") && !uiSelfTest);
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions {
                 Args = [], ContentRootPath = AppContext.BaseDirectory, WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot") });
             builder.Logging.ClearProviders();
@@ -52,9 +60,8 @@ public static class Program
             var host = builder.Build();
             var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             string baseUrl = "";
-            bool nativeReady = false;
-            Window? mainWindow = null;
-            WebView2? desktopView = null;
+            DashboardHost? dashboard = null;
+            TrayIcon? tray = null;
             host.Use(async (context, next) =>
             {
                 context.Response.Headers["X-Content-Type-Options"] = "nosniff";
@@ -77,13 +84,11 @@ public static class Program
             host.UseDefaultFiles(); host.UseStaticFiles();
             async Task<IResult> OnDesktop(Func<object> action) => Results.Json(await application.Dispatcher.InvokeAsync(action));
             host.MapGet("/api/session", () => Results.Json(new { token, version = updates.Status.CurrentVersion }));
-            host.MapGet("/api/health", () => Results.Json(new { mode = args.Contains("--serve") ? "browser" : "native", nativeReady }));
+            host.MapGet("/api/health", () => Results.Json(new { mode = args.Contains("--serve") ? "browser" : "native", nativeReady = dashboard?.IsReady == true }));
             host.MapPost("/api/activate", () => OnDesktop(() =>
             {
-                if (mainWindow == null) throw new InvalidOperationException("当前实例为开发服务，没有应用窗口。");
-                mainWindow.Show();
-                if (mainWindow.WindowState == WindowState.Minimized) mainWindow.WindowState = WindowState.Normal;
-                mainWindow.Activate();
+                if (tray == null) throw new InvalidOperationException("当前实例为开发服务，没有应用窗口。");
+                tray.ShowWindow();
                 return new { activated = true };
             }));
             host.MapGet("/api/state", () => OnDesktop(service.State));
@@ -98,7 +103,7 @@ public static class Program
             host.MapPost("/api/undo", (RestoreRequest request) => OnDesktop(() => service.Restore(request.Id, request.CurrentKey, request.DesktopKey, true)));
             host.MapPost("/api/undo-screen-switch", (RestoreRequest request) => OnDesktop(() => service.UndoScreenSwitch(request.CurrentKey, request.DesktopKey)));
             host.MapPost("/api/auto-arrange-off", () => OnDesktop(service.DisableAutoArrange));
-            host.MapPost("/api/settings", (SettingsRequest request) => OnDesktop(() => service.Settings(request.PanelGap, request.CheckUpdates)));
+            host.MapPost("/api/settings", (SettingsRequest request) => OnDesktop(() => service.Settings(request.PanelGap, request.CheckUpdates, request.BackgroundEnabled)));
             host.MapGet("/api/update/status", () => Results.Json(updates.Status));
             host.MapPost("/api/update/check", async (CancellationToken cancellation) => Results.Json(await updates.CheckAsync(cancellation)));
             host.MapPost("/api/update/download", async (UpdateRequest request, HttpContext context) => Results.Json(await updates.DownloadAsync(request.Version, context.RequestAborted)));
@@ -109,35 +114,51 @@ public static class Program
                 context.Response.OnCompleted(async () =>
                 {
                     await Task.Delay(500);
-                    await application.Dispatcher.InvokeAsync(() => application.Shutdown());
+                    await application.Dispatcher.InvokeAsync(() => {
+                        if (tray is null) application.Shutdown();
+                        else tray.Exit();
+                    });
                 });
                 return Results.Json(new { installing = true });
             });
-            // Keep the last valid pre-switch desktop even while the application is minimized.
             var screenWatcher = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            bool monitoring = false;
             void ObserveDesktop() {
-                try { service.Observe(); }
+                if (!monitoring) return;
+                try {
+                    service.Observe();
+                    if (!service.HasPendingReview) tray?.ClearNotice();
+                }
                 catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or System.Runtime.InteropServices.COMException)
                 { System.Diagnostics.Trace.TraceWarning("Desktop observation deferred: {0}", ex.Message); }
             }
             EventHandler displayChanged = (_, _) => application.Dispatcher.BeginInvoke((Action)ObserveDesktop);
-            Microsoft.Win32.SystemEvents.DisplaySettingsChanging += displayChanged;
-            Microsoft.Win32.SystemEvents.DisplaySettingsChanged += displayChanged;
-            service.ScreenSwitched += () => {
-                // Queue the notification after capture/state finishes on the STA dispatcher.
-                application.Dispatcher.BeginInvoke((Action)(async () => {
-                    if (mainWindow is null) return;
-                    mainWindow.Show();
-                    if (mainWindow.WindowState == WindowState.Minimized) mainWindow.WindowState = WindowState.Normal;
-                    mainWindow.Activate();
-                    if (desktopView?.CoreWebView2 is { } core)
-                        try { await core.ExecuteScriptAsync("window.dispatchEvent(new Event('deskfrza-screen-switch'))"); }
-                        catch (InvalidOperationException ex) { System.Diagnostics.Trace.TraceWarning("Screen notification deferred: {0}", ex.Message); }
+            void SetMonitoring(bool enabled) {
+                tray?.SetBackgroundEnabled(enabled);
+                if (!enabled) dashboard?.CancelChangeReview();
+                if (monitoring == enabled) return;
+                monitoring = enabled;
+                if (enabled) {
+                    Microsoft.Win32.SystemEvents.DisplaySettingsChanging += displayChanged;
+                    Microsoft.Win32.SystemEvents.DisplaySettingsChanged += displayChanged;
+                    ObserveDesktop(); screenWatcher.Start();
+                } else {
+                    screenWatcher.Stop();
+                    Microsoft.Win32.SystemEvents.DisplaySettingsChanging -= displayChanged;
+                    Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= displayChanged;
+                }
+            }
+            void QueueNotice(ReviewKind kind, string title, string message) {
+                application.Dispatcher.BeginInvoke((Action)(() => {
+                    // A user can disable monitoring after this callback was queued.
+                    if (monitoring && service.HasPendingReview) tray?.Notify(title, message, kind);
                 }));
-            };
+            }
+            service.ScreenSwitched += () => QueueNotice(ReviewKind.Screen, "屏幕布局已改变", "点击查看桌面布局与恢复选项。");
+            service.DesktopChanged += () => QueueNotice(ReviewKind.Desktop, "桌面图标已变动", "是否保存当前布局？点击选择是否保存。");
+            service.RecoveryFailed += () => QueueNotice(ReviewKind.Recovery, "默认单屏恢复未完成", "点击查看原因与恢复选项。");
+            service.BackgroundModeChanged += SetMonitoring;
             screenWatcher.Tick += (_, _) => ObserveDesktop();
-            ObserveDesktop();
-            screenWatcher.Start();
             host.StartAsync().GetAwaiter().GetResult();
             baseUrl = host.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single().TrimEnd('/');
             Directory.CreateDirectory(data);
@@ -145,41 +166,45 @@ public static class Program
             // Async host disposal must not capture the exiting WPF dispatcher.
             try
             {
-                if (args.Contains("--serve")) { Console.WriteLine(baseUrl); application.Run(); }
+                if (args.Contains("--serve")) {
+                    SetMonitoring(store.Read().Settings.BackgroundEnabled);
+                    Console.WriteLine(baseUrl); application.Run();
+                }
                 else
                 {
-                    var webview = new WebView2();
-                    desktopView = webview;
-                    var window = new Window { Title = "DeskFrzA", Width = 1380, Height = 920,
+                    var window = new Window { Title = uiSelfTest ? "DeskFrzA · 合成桌面自检" : "DeskFrzA", Width = 1380, Height = 920,
                         MinWidth = 920, MinHeight = 640, WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                        Background = (SolidColorBrush)new BrushConverter().ConvertFrom("#F8F6EF")!, Content = webview };
-                    mainWindow = window;
-                    window.Closed += (_, _) => webview.Dispose();
-                    window.Loaded += async (_, _) =>
-                    {
-                        try
-                        {
-                            var environment = await CoreWebView2Environment.CreateAsync(null, Path.Combine(data, "webview"));
-                            await webview.EnsureCoreWebView2Async(environment);
-                            webview.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-                            webview.CoreWebView2.Settings.AreDevToolsEnabled = args.Contains("--dev");
-                            webview.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                            void OpenExternal(string address)
-                            {
-                                if (!Uri.TryCreate(address, UriKind.Absolute, out var uri)
-                                    || uri.Scheme != "https" || uri.Host != "github.com" || uri.Port != 443 || uri.UserInfo.Length != 0) return;
-                                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }); }
-                                catch (Exception ex) { MessageBox.Show(ex.Message, "无法打开 GitHub"); }
-                            }
-                            webview.CoreWebView2.NewWindowRequested += (_, e) => { e.Handled = true; OpenExternal(e.Uri); };
-                            webview.CoreWebView2.NavigationCompleted += (_, e) => nativeReady = e.IsSuccess;
-                            webview.CoreWebView2.NavigationStarting += (_, e) =>
-                            { if (!e.Uri.StartsWith(baseUrl + "/", StringComparison.Ordinal)) { e.Cancel = true; OpenExternal(e.Uri); } };
-                            webview.Source = new Uri(baseUrl);
-                            if (args.Contains("--lifecycle-test"))
-                                await SingleInstance.TestLifecycle(window, data, Option("--output")!);
+                        Background = (SolidColorBrush)new BrushConverter().ConvertFrom("#F8F6EF")! };
+                    using var trayIcon = new TrayIcon(application, window, data, store.Read().Settings.BackgroundEnabled);
+                    tray = trayIcon;
+                    void WindowFailure(Exception ex) {
+                        if ((args.Contains("--lifecycle-test") || args.Contains("--memory-test") || args.Contains("--mode-test")) && Option("--output") is { } output)
+                            File.WriteAllText(output, JsonSerializer.Serialize(new { error = ex.ToString() }, json));
+                        else if (dashboard?.HasLoaded == true && trayIcon.BackgroundEnabled) {
+                            MessageBox.Show("后台保护仍在运行，请从托盘重新打开界面。\n\n" + ex.Message, "DeskFrzA 界面加载失败");
+                            return;
                         }
-                        catch (Exception ex) { MessageBox.Show(ex.Message, "DeskFrzA 启动失败"); window.Close(); }
+                        else MessageBox.Show(ex.Message, "DeskFrzA 启动失败");
+                        trayIcon.Exit(1);
+                    }
+                    using var page = new DashboardHost(window, baseUrl, data, args.Contains("--dev"), WindowFailure);
+                    dashboard = page;
+                    trayIcon.Opened += page.EnsureForegroundView;
+                    trayIcon.ReviewRequested += kind => { service.AcknowledgeReview(kind); page.RequestChangeReview(kind); };
+                    SetMonitoring(store.Read().Settings.BackgroundEnabled);
+                    bool tested = false;
+                    window.Loaded += async (_, _) => {
+                        if (tested) return;
+                        tested = true;
+                        try {
+                            if (args.Contains("--memory-test"))
+                                await MemoryTests.Run(window, trayIcon, () => page.IsReady, data, Option("--output")!);
+                            else if (args.Contains("--lifecycle-test"))
+                                await SingleInstance.TestLifecycle(window, trayIcon, data, Option("--output")!);
+                            else if (args.Contains("--mode-test"))
+                                await SingleInstance.TestModes(window, trayIcon, service, store, data, Option("--output")!);
+                        }
+                        catch (Exception ex) { WindowFailure(ex); }
                     };
                     application.Run(window);
                 }
@@ -187,6 +212,7 @@ public static class Program
             finally
             {
                 screenWatcher.Stop();
+                service.BackgroundModeChanged -= SetMonitoring;
                 Microsoft.Win32.SystemEvents.DisplaySettingsChanging -= displayChanged;
                 Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= displayChanged;
                 Task.Run(async () =>
@@ -211,6 +237,6 @@ public static class Program
     public record RenameRequest(string Id, string Name);
     public record PreviewRequest(string Id, string? TargetId = null, bool AllowResize = false);
     public record RestoreRequest(string Id, string CurrentKey, string DesktopKey, string? TargetId = null, bool AllowResize = false, bool AllowFreePlacement = false);
-    public record SettingsRequest(int PanelGap, bool? CheckUpdates = null);
+    public record SettingsRequest(int PanelGap, bool? CheckUpdates = null, bool? BackgroundEnabled = null);
     public record UpdateRequest(string Version);
 }

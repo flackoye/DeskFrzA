@@ -37,7 +37,7 @@ public static class TransferPlanner
             spanY == 0 ? 1 : (double)availableY / spanY));
         var report = new TransferReport(target.Id, original.Count, factor, freePlacement);
         RestorePlan Finish(List<Move> moves, string? reason) => new(saved.Id, current.ConfigKey, false, moves,
-            saved.Icons.Count - original.Count, newcomers.Count, reason) { Transfer = report };
+            saved.Icons.Count - original.Count, newcomers.Count, reason) { Transfer = report, GridAlignment = report.FreePlacement ? false : null };
         if (factor <= 0) return Finish([], "屏幕空间不足，请缩小桌面图标后重试。");
         // A single scale applies to both axes; no DPI/grid conversion may stretch the block.
         int width = (int)Math.Round(spanX * factor), height = (int)Math.Round(spanY * factor);

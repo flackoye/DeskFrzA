@@ -167,8 +167,8 @@ function renderRecord() {
 function renderDesktopStatus(data) {
   const mode = data.current.displays.length === 1 ? '单屏' : '多屏';
   const name = data.saved ? recordName(data.saved) : '未选用布局';
-  const warning = data.singleRecoveryFailed || data.needsSingleSetup || data.singleRecoveryPending || data.changed || !data.saved;
-  const text = data.singleRecoveryFailed ? '恢复未完成' : data.needsSingleSetup ? '待设置' : data.singleRecoveryPending ? '等待恢复' : data.changed ? '布局有改动' : data.saved ? '布局一致' : '未保存';
+  const warning = data.singleRecoveryFailed || data.singleRecoveryPending || data.changed || !data.saved;
+  const text = data.singleRecoveryFailed ? '恢复未完成' : data.singleRecoveryPending ? '等待恢复' : data.changed ? '布局有改动' : data.saved ? '布局一致' : '未保存';
   $('status-mode').textContent = mode;
   $('status-name').textContent = name;
   $('status-name').title = name;
@@ -178,6 +178,7 @@ function renderDesktopStatus(data) {
 }
 function render(data) {
   state = data;
+  renderBackgroundMode(data.settings);
   document.documentElement.style.setProperty('--panel-gap', `${data.settings.panelGap}px`);
   renderScreens(); renderRecord(); renderDesktopStatus(data);
   $('save-button').disabled = false;
@@ -190,15 +191,33 @@ function render(data) {
   $('single-recovery').hidden = !data.singleRecoveryMessage;
   $('single-recovery-text').textContent = data.singleRecoveryMessage || '';
   $('single-retry').hidden = !data.singleRecoveryFailed;
-  if (data.needsSingleSetup && !dialog.open) setTimeout(singleSetup, 0);
+}
+function renderBackgroundMode(settings) {
+  const enabled = !!settings.backgroundEnabled;
+  const description = `是否开启后台挂载：当前为${enabled ? '是' : '否'}`;
+  $('background-toggle').setAttribute('aria-checked', String(enabled));
+  $('background-toggle').setAttribute('aria-label', description);
+  $('background-tooltip').textContent = description;
+}
+async function toggleBackgroundMode() {
+  if (!state) return;
+  const button = $('background-toggle');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await perform(async () => {
+      state.settings = await api('settings', { panelGap: state.settings.panelGap, backgroundEnabled: !state.settings.backgroundEnabled });
+      renderBackgroundMode(state.settings);
+    });
+  } finally { button.disabled = false; }
 }
 async function refresh() {
   await perform(async () => {
     if (!token) token = (await api('session')).token;
     render(await api('state'));
+    $('background-toggle').disabled = false;
   });
 }
-let askedChange = '';
 async function saveNow(after, single = state?.current.displays.length === 1) {
   await perform(async () => {
     render(await api('save', { single }));
@@ -207,7 +226,6 @@ async function saveNow(after, single = state?.current.displays.length === 1) {
   if (after && !state.changed) after();
 }
 function askChanged(after) {
-  askedChange = `${state.current.configKey}:${state.desktopKey}`;
   modal('当前桌面布局已改变', 'NEW FREEZE');
   $('modal-body').append(element('p', '', '要将当前桌面加入新的历史记录吗？'));
   if (after) {
@@ -229,8 +247,7 @@ function selectRecord(id) {
     const primary = state.current.displays.find(m => m.primary);
     const sourceIds = new Set(record.icons.map(i => i.monitorId));
     const sourceAvailable = state.current.displays.some(m => sourceIds.has(m.id));
-    const needsTransfer = record.configKey !== state.current.configKey && sourceIds.size === 1
-      && (!record.isSingleScreen || !sourceAvailable);
+    const needsTransfer = sourceIds.size === 1 && !sourceAvailable;
     if (needsTransfer) preview(id, false, primary.id);
     else preview(id);
   };
@@ -252,29 +269,6 @@ async function setDefaultSingle(id = null) {
     render(await api('single-default', { id }));
     dialog.close(); toast('默认单屏布局已设置');
   });
-}
-function singleSetup() {
-  if (!state?.needsSingleSetup || dialog.open) return;
-  modal('先设置默认单屏布局', 'SINGLE SCREEN');
-  $('modal-close').hidden = true;
-  $('modal-body').append(element('p', '', '只剩一块屏幕时，自动恢复这套布局。'));
-  const singles = state.records.filter(r => r.isSingleScreen);
-  const candidates = singles.length ? singles : state.records.filter(r => new Set(r.icons.map(i => i.monitorId)).size <= 1 && r.displays.every(m => m.targetCount === 1));
-  let select;
-  if (candidates.length) {
-    select = element('select', 'name-input'); select.setAttribute('aria-label', '默认单屏布局');
-    candidates.forEach(record => {
-      const option = element('option', '', recordName(record)); option.value = record.id; select.append(option);
-    });
-    $('modal-body').append(select);
-  }
-  const canSave = new Set(state.current.icons.map(i => i.monitorId)).size <= 1 && state.current.displays.every(m => m.targetCount === 1);
-  if (!canSave) $('modal-body').append(element('p', '', '请将图标集中到一块屏幕，或先断开外接屏。'));
-  if (select) {
-    if (canSave) modalButton('保存当前布局', () => setDefaultSingle(), true);
-    modalButton('使用所选布局', () => setDefaultSingle(select.value));
-  } else if (canSave) modalButton('保存当前布局为默认', () => setDefaultSingle());
-  else modalButton('重新读取桌面', () => perform(async () => { render(await api('state')); dialog.close(); }));
 }
 async function restoreFailure(error, id, undo, targetId, allowResize) {
   failure(error);
@@ -362,11 +356,13 @@ async function preview(id, undo = false, targetId = null, allowResize = false) {
     if (plan.newCount) stats.append(element('span', '', `${plan.newCount} 个新图标`));
     if (plan.missingCount) stats.append(element('span', '', `${plan.missingCount} 个已删除 · 跳过`));
     stats.append(element('span', '', '可撤销')); $('modal-body').append(stats);
+    if (plan.gridAlignment === false && (current.folderFlags & 4) !== 0)
+      $('modal-body').append(element('p', '', '为保留保存的位置，恢复时会关闭“对齐到网格”。'));
     modalButton('取消', () => dialog.close(), true);
     const confirm = modalButton(undo ? '确认撤销' : '确认恢复', () => perform(async () => {
       confirm.disabled = true;
       try {
-        render(await api(undo ? 'undo' : 'restore', { id: plan.snapshotId, currentKey: plan.currentKey, desktopKey }));
+        render(await api(undo ? 'undo' : 'restore', { id: plan.snapshotId, currentKey: plan.currentKey, desktopKey, allowFreePlacement: plan.gridAlignment === false }));
         dialog.close(); toast(undo ? '已回到恢复前的排列' : '布局已恢复');
       } catch (error) { await restoreFailure(error, id, undo, targetId, allowResize); }
     }));
@@ -411,6 +407,7 @@ function deleteRecord(record) {
 }
 function settings() {
   modal('设置', 'MAKE IT YOURS');
+  $('modal-body').append(element('p', '', '后台挂载关闭时，不执行自动保护。'));
   const row = element('div', 'settings-row'); const value = element('strong', '', `${state?.settings.panelGap ?? 48} px`);
   row.append(element('span', '', '面板间距'), value);
   const range = element('input'); range.type = 'range'; range.min = '24'; range.max = '96'; range.step = '4';
@@ -436,6 +433,13 @@ function about() {
     element('p', '', 'MIT 开源许可。'));
 }
 let updateInfo = null, updateBusy = false, updateCheckPromise = null;
+async function initializeUpdates() {
+  updateInfo = await api('update/status');
+  $('update-button').hidden = updateInfo.status !== 'available';
+  const checkedAt = Date.parse(updateInfo.lastCheckedAt);
+  if (state?.settings.checkUpdates && (!Number.isFinite(checkedAt) || Date.now() - checkedAt >= 6 * 60 * 60 * 1000))
+    await checkForUpdates();
+}
 async function checkForUpdates(manual = false) {
   if (!token || (updateBusy && !updateCheckPromise)) return;
   if (!updateCheckPromise) {
@@ -492,7 +496,6 @@ function showUpdate() {
   });
 }
 function askScreenChange() {
-  askedScreen = screenChangeKey();
   const source = state.switchSource || state.saved;
   const primary = state.current.displays.find(m => m.primary);
   if (!source) return;
@@ -526,34 +529,38 @@ $('save-button').onclick = save; $('save-changes').onclick = save;
 $('restore-button').onclick = () => state?.saved && selectRecord(state.saved.id);
 $('undo-button').onclick = () => preview('', true);
 $('settings-button').onclick = settings; $('about-button').onclick = about;
+$('background-toggle').onclick = toggleBackgroundMode;
 $('update-button').onclick = showUpdate;
 $('modal-close').onclick = () => dialog.close();
-dialog.addEventListener('cancel', e => { if (state?.needsSingleSetup) e.preventDefault(); });
-dialog.addEventListener('close', () => { if (state?.needsSingleSetup) setTimeout(singleSetup, 0); });
 $('single-retry').onclick = () => perform(async () => { render(await api('single-retry', {})); toast('正在重新恢复单屏布局'); });
 dialog.addEventListener('close', () => { if (state) document.documentElement.style.setProperty('--panel-gap', `${state.settings.panelGap}px`); });
+dialog.addEventListener('close', () => {
+  if (!pendingDesktopReview) return;
+  const kind = pendingDesktopReview; pendingDesktopReview = null;
+  setTimeout(() => { reviewDesktopNotification(kind).catch(failure); }, 0);
+});
 dialog.addEventListener('click', e => { if (e.target === dialog) { const r = dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) dialog.close(); } });
 window.addEventListener('scroll', () => { if (!scrollPending) { scrollPending = true; requestAnimationFrame(updateSticky); } }, { passive: true });
 new ResizeObserver(() => { renderScreens(); updateSticky(); }).observe($('screen-map'));
-refresh().then(() => { if (state?.settings.checkUpdates) checkForUpdates(); });
+refresh().then(initializeUpdates).catch(failure);
 
-let askedScreen = '';
-function screenChangeKey() { return state.switchSource?.id || state.current.configKey; }
 async function pollDesktop() {
   if (running || document.hidden || !token) return;
-  await perform(async () => {
-    render(await api('state'));
-    const screenChanged = state.current.displays.length > 1 && (state.switchSource || (state.saved && state.baselinePrimaryId && state.baselinePrimaryId !== state.current.displays.find(m => m.primary).id));
-    if (state.needsSingleSetup) return;
-    if (state.current.displays.length === 1 && (state.singleRecoveryPending || state.singleRecoveryFailed)) return;
-    if (screenChanged && askedScreen !== screenChangeKey()) setTimeout(askScreenChange, 0);
-    else if (!dialog.open && state.changed && !screenChanged && askedChange !== `${state.current.configKey}:${state.desktopKey}`) askChanged();
-    if (!state.changed) askedChange = '';
-    if (!screenChanged) askedScreen = '';
-  }, true);
+  await perform(async () => render(await api('state')), true);
 }
 setInterval(pollDesktop, 2000);
-window.addEventListener('deskfrza-screen-switch', () => { if (running) actionFinished.then(pollDesktop); else pollDesktop(); });
+let pendingDesktopReview = null;
+async function reviewDesktopNotification(kind = 'desktop') {
+  if (running) await actionFinished;
+  await refresh();
+  if (!state?.settings.backgroundEnabled) { pendingDesktopReview = null; return; }
+  if (dialog.open) { pendingDesktopReview = kind; return; }
+  pendingDesktopReview = null;
+  if (kind === 'screen' && state.current.displays.length > 1 && state.switchSource) askScreenChange();
+  else if (kind === 'recovery' && state.singleRecoveryFailed) $('single-recovery').scrollIntoView({ block: 'center' });
+  else if (state.changed || !state.saved) askChanged();
+}
+window.addEventListener('deskfrza-review-changes', event => { reviewDesktopNotification(event.detail).catch(failure); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollDesktop(); });
 setInterval(() => { if (!document.hidden && !dialog.open && state?.settings.checkUpdates) checkForUpdates(); }, 6 * 60 * 60 * 1000);
 

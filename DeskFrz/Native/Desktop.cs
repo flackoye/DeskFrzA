@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace DeskFrz.Native;
 
 /// <summary>All calls belong to the application's STA dispatcher. Slots follow Windows SDK COM headers.</summary>
-public sealed class Desktop : IDisposable
+public sealed class Desktop : IDesktopSession
 {
     readonly List<nint> owned = [];
     readonly List<nint> pidls = [];
@@ -52,6 +52,8 @@ public sealed class Desktop : IDisposable
     {
         var displays = Displays.Read();
         Check(Method<GetPointer>(shellView, 3)(shellView, out var hwnd));
+        uint spacingDpi = Displays.GetDpiForWindow(hwnd);
+        if (spacingDpi == 0) throw new InvalidOperationException("无法读取桌面视图的 DPI，请稍后重试。");
         var origin = new Displays.Point();
         if (!Displays.ClientToScreen(hwnd, ref origin)) throw new System.ComponentModel.Win32Exception();
         Check(Method<GetPoint>(view, 12)(view, out var spacing));
@@ -80,11 +82,14 @@ public sealed class Desktop : IDisposable
         var secondRead = Displays.Read();
         var grid = new Position(spacing.X, spacing.Y);
         if (grid.X <= 0 || grid.Y <= 0) throw new InvalidOperationException("无法读取桌面图标间距。");
-        var key = Fingerprint.Configuration(displays, grid, size, flags);
-        if (key != Fingerprint.Configuration(secondRead, grid, size, flags))
+        var key = Fingerprint.Configuration(displays, grid, size, flags, (int)spacingDpi);
+        Check(Method<GetPoint>(view, 12)(view, out var finalSpacing));
+        Check(Method<GetFlags>(view, 25)(view, out var finalFlags));
+        Check(Method<GetIconSize>(view, 36)(view, out _, out var finalSize));
+        if (key != Fingerprint.Configuration(secondRead, new(finalSpacing.X, finalSpacing.Y), finalSize, finalFlags, (int)Displays.GetDpiForWindow(hwnd)))
             throw new InvalidOperationException("屏幕配置在读取时发生变化，请重试。");
         return new Snapshot(Guid.NewGuid().ToString("N"), DateTimeOffset.Now, key, displays,
-            icons, grid, new Position(origin.X, origin.Y), size, flags);
+            icons, grid, new Position(origin.X, origin.Y), size, flags) { SpacingDpi = (int)spacingDpi };
     }
 
     public void DisableAutoArrange()

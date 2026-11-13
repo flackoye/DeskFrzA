@@ -63,6 +63,22 @@ internal static class SingleScreenTests
         assert(!gate.Ready(unplugged, single.Id, now.AddSeconds(13)) && gate.Ready(unplugged, single.Id, now.AddSeconds(15)), "reconnecting then unplugging arms a new recovery");
         gate.Retry();
         assert(!gate.Ready(unplugged, single.Id, now.AddSeconds(16)) && gate.Ready(unplugged, single.Id, now.AddSeconds(18)), "explicit retry waits for stable screen before recovering");
+        gate.Retry(); gate.Ready(unplugged, single.Id, now);
+        var stillMoving = unplugged with { Icons = unplugged.Icons.Select(i=>i with { X=i.X+100 }).ToList() };
+        assert(!gate.Ready(stillMoving, single.Id, now.AddSeconds(2))
+            && !gate.Ready(stillMoving, single.Id, now.AddSeconds(3))
+            && gate.Ready(stillMoving, single.Id, now.AddSeconds(4)),
+            "disconnect recovery waits for desktop icon positions as well as display geometry to settle");
+        gate.Retry(); gate.Ready(unplugged, single.Id, now); gate.Ready(dual, single.Id, now.AddSeconds(1));
+        assert(!gate.Ready(dual, single.Id, now.AddSeconds(5)) && !gate.Pending,
+            "a transient disconnect that returns to multiple screens cancels pending single recovery");
+        gate.Retry(); gate.Ready(unplugged, single.Id, now);
+        var changedSettings = unplugged with { ConfigKey = "changed-while-waiting", FolderFlags = unplugged.FolderFlags ^ 4 };
+        assert(!gate.Ready(changedSettings, single.Id, now.AddSeconds(2))
+            && !gate.Ready(changedSettings, single.Id, now.AddSeconds(3))
+            && gate.Ready(changedSettings, single.Id, now.AddSeconds(4))
+            && !gate.Ready(unplugged, single.Id, now.AddSeconds(8)),
+            "Shell setting changes restart pending stability but cannot rearm a handled configuration");
         var store = new Store(Path.Combine(directory, "single-" + Guid.NewGuid().ToString("N")));
         try {
             store.Save(dual);

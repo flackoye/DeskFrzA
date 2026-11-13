@@ -31,10 +31,11 @@ public static class Displays
     [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")] static extern int GetSourceName(ref SourceName name);
     [DllImport("user32.dll", EntryPoint = "DisplayConfigGetDeviceInfo")] static extern int GetTargetName(ref TargetName name);
     [DllImport("user32.dll", SetLastError = true)] public static extern bool ClientToScreen(nint window, ref Point point);
+    [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(nint window);
 
     [DllImport("user32.dll")] static extern int SetDisplayConfig(uint pathCount, [In] DisplayPath[] paths,
         uint modeCount, nint modes, uint flags);
-    public sealed class Configuration
+    public sealed class Configuration : IDisplayConfiguration
     {
         internal DisplayPath[] Paths = [];
         internal byte[] Modes = [];
